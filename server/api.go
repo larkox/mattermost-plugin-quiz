@@ -655,7 +655,7 @@ func (p *Plugin) attachmentRemoveQuestions(w http.ResponseWriter, r *http.Reques
 		TriggerId: req.TriggerId,
 		URL:       p.getDialogURL() + DialogPathRemoveQuestion,
 		Dialog: model.Dialog{
-			Title:            "Review questions",
+			Title:            "Remove questions",
 			IntroductionText: "Select the questions to delete.",
 			SubmitLabel:      "Remove selected",
 			State:            id,
