@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/mattermost/mattermost-server/v5/model"
@@ -83,6 +85,21 @@ func (p *Plugin) initializeAPI() {
 			Handler: p.dialogRemoveQuestions,
 			Method:  http.MethodPost,
 		},
+		{
+			Path:    DialogPathGameStart,
+			Handler: p.dialogGameStart,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathScore,
+			Handler: p.dialogScore,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathAnswer,
+			Handler: p.dialogAnswer,
+			Method:  http.MethodPost,
+		},
 	}
 
 	for _, e := range dialogRouterEndpoints {
@@ -123,6 +140,26 @@ func (p *Plugin) initializeAPI() {
 		{
 			Path:    AttachmentPathSave,
 			Handler: p.attachmentSave,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathSelectAnswer,
+			Handler: p.attachmentSelectAnswer,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathScore,
+			Handler: p.attachmentScore,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathNext,
+			Handler: p.attachmentNext,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathAnswer,
+			Handler: p.attachmentAnswer,
 			Method:  http.MethodPost,
 		},
 	}
@@ -388,6 +425,251 @@ func (p *Plugin) dialogRemoveQuestions(w http.ResponseWriter, r *http.Request, a
 }
 
 func (p *Plugin) dialogReviewQuestions(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogGameStart(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+
+	quizID, ok := req.Submission[DialogSubmissionFieldGameQuiz].(string)
+	quizID = strings.TrimSpace(quizID)
+	if !ok || quizID == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldGameQuiz: "Could not get quiz",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	gameType, ok := req.Submission[DialogSubmissionFieldGameType].(string)
+	gameType = strings.TrimSpace(gameType)
+	if !ok || gameType == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldGameType: "Could not get type",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	if gameType != string(GameTypeSolo) && gameType != string(GameTypeParty) {
+		errors := map[string]string{
+			DialogSubmissionFieldGameType: "Type not recognized",
+		}
+		dialogError(w, "Unrecognized value", errors)
+		return
+	}
+
+	scoring, ok := req.Submission[DialogSubmissionFieldGameScoring].(string)
+	scoring = strings.TrimSpace(scoring)
+	if !ok || scoring == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldGameScoring: "Could not get scoring",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	if scoring != string(ScoringTypeAll) && scoring != string(ScoringTypeFirst) {
+		errors := map[string]string{
+			DialogSubmissionFieldGameScoring: "Scoring type not recognized",
+		}
+		dialogError(w, "Unrecognized value", errors)
+		return
+	}
+
+	nQuestionsFloat, ok := req.Submission[DialogSubmissionFieldNumberOfQuestions].(float64)
+	if !ok {
+		errors := map[string]string{
+			DialogSubmissionFieldNumberOfQuestions: "Could not get the number of questions",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	nQuestions := int(nQuestionsFloat)
+
+	quiz, err := p.store.GetQuiz(quizID)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	validQuestions := quiz.ValidQuestions()
+
+	if nQuestions <= 0 {
+		nQuestions = validQuestions
+	}
+
+	if nQuestions > validQuestions {
+		nQuestions = validQuestions
+	}
+
+	questions := quiz.Questions
+	if quiz.Type == QuizTypeMultipleChoice {
+		questions = []Question{}
+		for _, question := range quiz.Questions {
+			if len(question.IncorrectAnswers) >= IncorrectAnswerCount {
+				questions = append(questions, question)
+			}
+		}
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(questions), func(i, j int) { questions[i], questions[j] = questions[j], questions[i] })
+
+	game := &Game{
+		Quiz:               *quiz,
+		GM:                 actingUserID,
+		Score:              map[string]int{},
+		Type:               GameType(gameType),
+		ScoringType:        ScoringType(scoring),
+		RemainingQuestions: questions[:nQuestions],
+		NQuestions:         nQuestions,
+		AlreadyAnswered:    map[string]bool{},
+	}
+
+	if quiz.Type == QuizTypeMultipleChoice {
+		game.CurrentAnswers, game.CorrectAnswer = getRandomAnswers(game.RemainingQuestions[0])
+	}
+
+	post := &model.Post{
+		Message: "New quiz",
+	}
+
+	model.ParseSlackAttachment(post, p.GameAttachment(game))
+	if gameType == string(GameTypeSolo) {
+		err = p.mm.Post.DM(p.BotUserID, actingUserID, post)
+		if err != nil {
+			dialogError(w, err.Error(), nil)
+			return
+		}
+	} else {
+		post.ChannelId = req.ChannelId
+		post.UserId = p.BotUserID
+		err = p.mm.Post.CreatePost(post)
+		if err != nil {
+			dialogError(w, err.Error(), nil)
+			return
+		}
+	}
+
+	game.RootPostID = post.Id
+	game.CurrentPostID = post.Id
+
+	err = p.store.StoreGame(game)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogScore(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogAnswer(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	state := strings.Split(req.State, ",")
+	if len(state) != 2 {
+		dialogError(w, "wrong state", nil)
+		return
+	}
+	id := state[0]
+	qID := state[1]
+
+	answer, ok := req.Submission[DialogSubmissionFieldGameAnswer].(string)
+	answer = strings.TrimSpace(answer)
+	if !ok || answer == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldGameAnswer: "Could not get the answer",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	g, err := p.store.GetGame(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	if g == nil {
+		dialogError(w, "game not found", nil)
+		return
+	}
+
+	if qID != g.RemainingQuestions[0].ID {
+		dialogError(w, "this question has been already passed", nil)
+		return
+	}
+
+	user, err := p.mm.User.Get(actingUserID)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	if g.AlreadyAnswered[user.Username] {
+		dialogError(w, "you already tried to answer this question", nil)
+		return
+	}
+
+	g.AlreadyAnswered[user.Username] = true
+
+	responseMessage := "Your answer is incorrect."
+	if answer == g.RemainingQuestions[0].CorrectAnswer {
+		responseMessage = "You are correct!"
+		g.Score[user.Username] += 1
+		if g.ScoringType == ScoringTypeFirst && len(g.AlreadyAnswered) == 1 {
+			g.Score[user.Username] += 2
+		}
+		g.RightPlayers = append(g.RightPlayers, user.Username)
+	}
+
+	responsePost := &model.Post{
+		UserId:    p.BotUserID,
+		Message:   responseMessage,
+		ChannelId: req.ChannelId,
+	}
+
+	post, err := p.mm.Post.GetPost(g.CurrentPostID)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	if g.Type == GameTypeParty {
+		model.ParseSlackAttachment(post, p.GameAttachment(g))
+		err = p.mm.Post.UpdatePost(post)
+		if err != nil {
+			dialogError(w, err.Error(), nil)
+			return
+		}
+		err = p.store.StoreGame(g)
+		if err != nil {
+			dialogError(w, err.Error(), nil)
+			return
+		}
+		p.mm.Post.SendEphemeralPost(actingUserID, responsePost)
+		dialogOK(w)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.GameSolutionAttachment(g))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	err = p.handleNextQuestion(g, req.ChannelId)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	p.mm.Post.SendEphemeralPost(actingUserID, responsePost)
 	dialogOK(w)
 }
 
@@ -703,8 +985,292 @@ func (p *Plugin) attachmentSave(w http.ResponseWriter, r *http.Request, actingUs
 	_, _ = w.Write(resp.ToJson())
 }
 
+func (p *Plugin) attachmentAnswer(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getGameIDFromPostActionRequest(req)
+
+	g, err := p.store.GetGame(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g == nil {
+		attachmentError(w, "game not found")
+		return
+	}
+
+	qID, ok := req.Context[AttachmentContextFieldQuestionID].(string)
+	if !ok || id == "" {
+		attachmentError(w, "cannot find question ID")
+		return
+	}
+
+	if qID != g.RemainingQuestions[0].ID {
+		attachmentError(w, "mismatch between post and internal state")
+		return
+	}
+
+	user, err := p.mm.User.Get(actingUserID)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g.AlreadyAnswered[user.Username] {
+		attachmentError(w, "you already tried to answer this question")
+		return
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathAnswer,
+		Dialog: model.Dialog{
+			Title:            "Answer",
+			IntroductionText: g.RemainingQuestions[0].Question,
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Your answer",
+					Name:        DialogSubmissionFieldGameAnswer,
+					Type:        DialogTypeText,
+				},
+			},
+			State: strings.Join([]string{id, qID}, ","),
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentSelectAnswer(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getGameIDFromPostActionRequest(req)
+
+	g, err := p.store.GetGame(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g == nil {
+		attachmentError(w, "game not found")
+		return
+	}
+
+	qID, ok := req.Context[AttachmentContextFieldQuestionID].(string)
+	if !ok || id == "" {
+		attachmentError(w, "cannot find question ID")
+		return
+	}
+
+	if qID != g.RemainingQuestions[0].ID {
+		attachmentError(w, "mismatch between post and internal state")
+		return
+	}
+
+	user, err := p.mm.User.Get(actingUserID)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g.AlreadyAnswered[user.Username] {
+		attachmentError(w, "you already tried to answer this question")
+		return
+	}
+
+	g.AlreadyAnswered[user.Username] = true
+
+	correctAnswer, ok := req.Context[AttachmentContextFieldCorrect].(bool)
+	if !ok {
+		attachmentError(w, "cannot find whether is the correct answer")
+		return
+	}
+
+	responseMessage := "Your answer is incorrect."
+	if correctAnswer {
+
+		responseMessage = "You are correct!"
+		g.Score[user.Username] += 1
+		if g.ScoringType == ScoringTypeFirst && len(g.AlreadyAnswered) == 1 {
+			g.Score[user.Username] += 2
+		}
+		g.RightPlayers = append(g.RightPlayers, user.Username)
+	}
+
+	post, err := p.mm.Post.GetPost(req.PostId)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g.Type == GameTypeParty {
+		model.ParseSlackAttachment(post, p.GameAttachment(g))
+		err = p.mm.Post.UpdatePost(post)
+		if err != nil {
+			attachmentError(w, err.Error())
+			return
+		}
+		err = p.store.StoreGame(g)
+		if err != nil {
+			attachmentError(w, err.Error())
+			return
+		}
+		attachmentOK(w, responseMessage)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.GameSolutionAttachment(g))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	err = p.handleNextQuestion(g, req.ChannelId)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	attachmentOK(w, responseMessage)
+}
+
+func (p *Plugin) attachmentScore(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getGameIDFromPostActionRequest(req)
+
+	g, err := p.store.GetGame(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g == nil {
+		attachmentError(w, "game not found")
+		return
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathScore,
+		Dialog: model.Dialog{
+			Title:            "Score",
+			IntroductionText: getScores(g),
+			SubmitLabel:      "OK",
+			State:            id,
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentNext(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getGameIDFromPostActionRequest(req)
+
+	g, err := p.store.GetGame(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if g == nil {
+		attachmentError(w, "game not found")
+		return
+	}
+
+	if g.GM != actingUserID {
+		attachmentError(w, "only the person who created the quiz can pass to the next question")
+		return
+	}
+
+	qID, ok := req.Context[AttachmentContextFieldQuestionID].(string)
+	if !ok || id == "" {
+		attachmentError(w, "cannot find question ID")
+		return
+	}
+
+	if qID != g.RemainingQuestions[0].ID {
+		attachmentError(w, "mismatch between post and internal state")
+		return
+	}
+
+	post, err := p.mm.Post.GetPost(req.PostId)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.GameSolutionAttachment(g))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	err = p.handleNextQuestion(g, req.ChannelId)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) handleNextQuestion(g *Game, channelID string) error {
+	post := &model.Post{
+		UserId:    p.BotUserID,
+		ChannelId: channelID,
+		RootId:    g.RootPostID,
+		Message:   "Next question!",
+	}
+
+	g.RemainingQuestions = g.RemainingQuestions[1:]
+
+	if len(g.RemainingQuestions) == 0 {
+		post.Message = "Quiz finished!"
+		model.ParseSlackAttachment(post, p.GameEndAttachment(g))
+		err := p.mm.Post.CreatePost(post)
+		if err != nil {
+			return err
+		}
+
+		return p.store.DeleteGame(g.RootPostID)
+	}
+
+	g.CurrentAnswers, g.CorrectAnswer = getRandomAnswers(g.RemainingQuestions[0])
+	g.AlreadyAnswered = map[string]bool{}
+	g.RightPlayers = []string{}
+
+	model.ParseSlackAttachment(post, p.GameAttachment(g))
+	err := p.mm.Post.CreatePost(post)
+	if err != nil {
+		return err
+	}
+
+	g.CurrentPostID = post.Id
+
+	return p.store.StoreGame(g)
+}
+
 func getQuizIDFromPostActionRequest(req *model.PostActionIntegrationRequest) string {
 	id, ok := req.Context[AttachmentContextFieldID].(string)
+	if !ok || id == "" {
+		id = req.PostId
+	}
+	return id
+}
+
+func getGameIDFromPostActionRequest(req *model.PostActionIntegrationRequest) string {
+	id, ok := req.Context[AttachmentContextFieldGameID].(string)
 	if !ok || id == "" {
 		id = req.PostId
 	}

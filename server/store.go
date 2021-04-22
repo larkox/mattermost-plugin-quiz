@@ -9,11 +9,16 @@ type Store interface {
 
 	AddAvailableQuiz(q *Quiz) error
 	GetAvailableQuizes() []*Quiz
+
+	GetGame(id string) (*Game, error)
+	StoreGame(g *Game) error
+	DeleteGame(id string) error
 }
 
 const (
 	KVQuizPrefix = "quiz_"
 	KVQuizList   = "quizList"
+	KVGamePrefix = "game_"
 )
 
 type store struct {
@@ -24,6 +29,34 @@ func NewStore(mm *pluginapi.Client) Store {
 	return &store{
 		mm: mm,
 	}
+}
+
+func (s *store) GetGame(id string) (*Game, error) {
+	var g *Game
+	err := s.mm.KV.Get(getGameKey(id), &g)
+	if err != nil {
+		return nil, err
+	}
+
+	return g, nil
+}
+
+func (s *store) StoreGame(g *Game) error {
+	_, err := s.mm.KV.Set(getGameKey(g.RootPostID), g)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *store) DeleteGame(id string) error {
+	err := s.mm.KV.Delete(getGameKey(id))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *store) GetAvailableQuizes() []*Quiz {
@@ -138,4 +171,8 @@ func (s *store) GetQuiz(id string) (*Quiz, error) {
 
 func getQuizKey(id string) string {
 	return KVQuizPrefix + id
+}
+
+func getGameKey(id string) string {
+	return KVGamePrefix + id
 }

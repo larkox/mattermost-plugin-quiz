@@ -7,6 +7,20 @@ const (
 	QuizTypeMultipleChoice QuizType = "multiple-choice"
 )
 
+type GameType string
+
+const (
+	GameTypeSolo  GameType = "solo"
+	GameTypeParty GameType = "party"
+)
+
+type ScoringType string
+
+const (
+	ScoringTypeAll   ScoringType = "all"
+	ScoringTypeFirst ScoringType = "first"
+)
+
 type Quiz struct {
 	ID        string
 	Name      string
@@ -19,6 +33,22 @@ type Question struct {
 	Question         string
 	CorrectAnswer    string
 	IncorrectAnswers []string
+}
+
+type Game struct {
+	Quiz               Quiz
+	GM                 string
+	Score              map[string]int
+	RemainingQuestions []Question
+	RootPostID         string
+	CurrentPostID      string
+	Type               GameType
+	ScoringType        ScoringType
+	AlreadyAnswered    map[string]bool
+	NQuestions         int
+	CurrentAnswers     []string
+	CorrectAnswer      int
+	RightPlayers       []string
 }
 
 func (q Quiz) ValidQuestions() int {

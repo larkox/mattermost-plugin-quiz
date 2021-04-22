@@ -54,6 +54,8 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 		handler = p.runClean
 	case "create":
 		handler = p.runCreate
+	case "start":
+		handler = p.runStart
 	default:
 		p.postCommandResponse(args, getHelp())
 		return &model.CommandResponse{}, nil
@@ -102,6 +104,83 @@ func (p *Plugin) runCreate(args []string, extra *model.CommandArgs) (bool, *mode
 	}
 
 	p.postCommandResponse(extra, "The bot will contact you soon and guide you through the creation process.")
+	return emptyCommandResponse()
+}
+
+func (p *Plugin) runStart(args []string, extra *model.CommandArgs) (bool, *model.CommandResponse, error) {
+	quizzes := p.store.GetAvailableQuizes()
+	if len(quizzes) == 0 {
+		p.postCommandResponse(extra, "Error: No quizzes available to start. Create a new quiz first.")
+		return emptyCommandResponse()
+	}
+
+	quizOptions := []*model.PostActionOptions{}
+	for _, q := range quizzes {
+		quizOptions = append(quizOptions, &model.PostActionOptions{Text: q.Name, Value: q.ID})
+	}
+
+	err := p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: extra.TriggerId,
+		URL:       p.getDialogURL() + DialogPathGameStart,
+		Dialog: model.Dialog{
+			Title:            "Start quiz",
+			IntroductionText: "Select the quiz and the configuration.",
+			SubmitLabel:      "Start quiz",
+			Elements: []model.DialogElement{
+				{
+					Type:        DialogTypeSelect,
+					Name:        DialogSubmissionFieldGameQuiz,
+					DisplayName: "Quiz",
+					Options:     quizOptions,
+				},
+				{
+					Type:        DialogTypeSelect,
+					Name:        DialogSubmissionFieldGameType,
+					DisplayName: "Type",
+					HelpText:    "Solo will start the quiz on the bot DM. Party will start the quiz in this channel.",
+					Options: []*model.PostActionOptions{
+						{
+							Text:  "Solo",
+							Value: string(GameTypeSolo),
+						},
+						{
+							Text:  "Party",
+							Value: string(GameTypeParty),
+						},
+					},
+				},
+				{
+					Type:        DialogTypeSelect,
+					Name:        DialogSubmissionFieldGameScoring,
+					DisplayName: "Scoring",
+					HelpText:    "All will give 1 point to all people that answer correctly. First will give 2 extra points to the one that answered first.",
+					Options: []*model.PostActionOptions{
+						{
+							Text:  "All",
+							Value: string(ScoringTypeAll),
+						},
+						{
+							Text:  "First",
+							Value: string(ScoringTypeFirst),
+						},
+					},
+				},
+				{
+					Type:        DialogTypeText,
+					SubType:     DialogSubtypeNumber,
+					Name:        DialogSubmissionFieldNumberOfQuestions,
+					DisplayName: "Number of questions",
+					HelpText:    "0 will go through all the questions in the quiz. If this number is larger than the number of questions, it will stop when all questions are answered.",
+					Default:     "0",
+				},
+			},
+		},
+	})
+	if err != nil {
+		p.postCommandResponse(extra, "Error: No quizzes available to start. Create a new quiz first.")
+		return emptyCommandResponse()
+	}
+
 	return emptyCommandResponse()
 }
 
