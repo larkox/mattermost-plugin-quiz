@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
+	"github.com/larkox/mattermost-plugin-badges/badgesmodel"
 	pluginapi "github.com/mattermost/mattermost-plugin-api"
 
 	"github.com/mattermost/mattermost-server/v5/model"
@@ -27,6 +28,7 @@ type Plugin struct {
 	BotUserID string
 	store     Store
 	router    *mux.Router
+	badgesMap map[string]badgesmodel.BadgeID
 }
 
 // ServeHTTP demonstrates a plugin that handles HTTP requests by greeting the world.
@@ -52,5 +54,6 @@ func (p *Plugin) OnActivate() error {
 	p.store = NewStore(p.mm)
 	p.initializeAPI()
 
+	p.EnsureBadges()
 	return p.mm.SlashCommand.Register(p.getCommand())
 }

@@ -46,13 +46,8 @@ func (p *Plugin) initializeAPI() {
 	p.router = mux.NewRouter()
 	p.router.Use(p.withRecovery)
 
-	// apiRouter := p.router.PathPrefix(APIPath).Subrouter()
 	dialogRouter := p.router.PathPrefix(DialogPath).Subrouter()
 	attachmentRouter := p.router.PathPrefix(AttachmentPath).Subrouter()
-
-	// apiRouter.HandleFunc("/getUserBadges/{userID}", p.extractUserMiddleWare(p.getUserBadges, ResponseTypeJSON)).Methods(http.MethodGet)
-	// apiRouter.HandleFunc("/getBadgeDetails/{badgeID}", p.extractUserMiddleWare(p.getBadgeDetails, ResponseTypeJSON)).Methods(http.MethodGet)
-	// apiRouter.HandleFunc("/getAllBadges", p.extractUserMiddleWare(p.getAllBadges, ResponseTypeJSON)).Methods(http.MethodGet)
 
 	dialogRouterEndpoints := []Endpoint{
 		{
@@ -168,8 +163,7 @@ func (p *Plugin) initializeAPI() {
 		attachmentRouter.HandleFunc(e.Path, p.extractUserMiddleWare(e.Handler, ResponseTypeDialog)).Methods(e.Method)
 	}
 
-	// apiRouter.HandleFunc("/config", checkPluginRequest(p.getConfig)).Methods(http.MethodGet)
-	// apiRouter.HandleFunc("/token", checkPluginRequest(p.getToken)).Methods(http.MethodGet)
+	p.router.PathPrefix(StaticPath).Handler(http.StripPrefix("/", http.FileServer(http.FS(staticAssets))))
 
 	p.router.PathPrefix("/").HandlerFunc(p.defaultHandler)
 }
@@ -663,7 +657,7 @@ func (p *Plugin) dialogAnswer(w http.ResponseWriter, r *http.Request, actingUser
 		return
 	}
 
-	err = p.handleNextQuestion(g, req.ChannelId)
+	err = p.handleNextQuestion(g, req.ChannelId, actingUserID)
 	if err != nil {
 		dialogError(w, err.Error(), nil)
 		return
@@ -976,6 +970,8 @@ func (p *Plugin) attachmentSave(w http.ResponseWriter, r *http.Request, actingUs
 		return
 	}
 
+	p.GrantBadge(AchievementNameContentCreator, actingUserID)
+
 	resp := model.PostActionIntegrationResponse{
 		Update: &model.Post{
 			Message: fmt.Sprintf("Quiz `%s` saved and ready to use.", q.Name),
@@ -1131,7 +1127,7 @@ func (p *Plugin) attachmentSelectAnswer(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	err = p.handleNextQuestion(g, req.ChannelId)
+	err = p.handleNextQuestion(g, req.ChannelId, actingUserID)
 	if err != nil {
 		attachmentError(w, err.Error())
 		return
@@ -1216,7 +1212,7 @@ func (p *Plugin) attachmentNext(w http.ResponseWriter, r *http.Request, actingUs
 		return
 	}
 
-	err = p.handleNextQuestion(g, req.ChannelId)
+	err = p.handleNextQuestion(g, req.ChannelId, actingUserID)
 	if err != nil {
 		attachmentError(w, err.Error())
 		return
@@ -1225,7 +1221,7 @@ func (p *Plugin) attachmentNext(w http.ResponseWriter, r *http.Request, actingUs
 	attachmentOK(w, "")
 }
 
-func (p *Plugin) handleNextQuestion(g *Game, channelID string) error {
+func (p *Plugin) handleNextQuestion(g *Game, channelID, actingUserID string) error {
 	post := &model.Post{
 		UserId:    p.BotUserID,
 		ChannelId: channelID,
@@ -1243,7 +1239,21 @@ func (p *Plugin) handleNextQuestion(g *Game, channelID string) error {
 			return err
 		}
 
+		if g.Type == GameTypeSolo {
+			p.GrantBadge(AchievementNameHardWorker, actingUserID)
+		}
+
+		if g.Type == GameTypeParty {
+			rows := getScoreRows(g)
+			if len(rows) > 0 {
+				user, err := p.mm.User.GetByUsername(rows[0].name)
+				if err == nil {
+					p.GrantBadge(AchievementNameWinner, user.Id)
+				}
+			}
+		}
 		return p.store.DeleteGame(g.RootPostID)
+
 	}
 
 	g.CurrentAnswers, g.CorrectAnswer = getRandomAnswers(g.RemainingQuestions[0])
@@ -1376,6 +1386,10 @@ func (p *Plugin) getPluginURL() string {
 
 func (p *Plugin) getAPIURL() string {
 	return p.getPluginURL() + APIPath
+}
+
+func (p *Plugin) getStaticURL() string {
+	return p.getPluginURL() + StaticPath
 }
 
 func (p *Plugin) getDialogURL() string {

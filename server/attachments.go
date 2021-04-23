@@ -242,19 +242,25 @@ func (p *Plugin) GameEndAttachment(g *Game) []*model.SlackAttachment {
 	return []*model.SlackAttachment{attachment}
 }
 
+type scoreRow struct {
+	name  string
+	score int
+}
+
+func getScoreRows(g *Game) []scoreRow {
+	rows := []scoreRow{}
+	for name, score := range g.Score {
+		rows = append(rows, scoreRow{name: name, score: score})
+	}
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
+	return rows
+}
+
 func getScores(g *Game) string {
 	out := ""
 	if g.Type == GameTypeParty {
-		type row struct {
-			name  string
-			score int
-		}
-		rows := []row{}
-		for name, score := range g.Score {
-			rows = append(rows, row{name: name, score: score})
-		}
-
-		sort.Slice(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
+		rows := getScoreRows(g)
 		out += "Scores:"
 		for _, scoreRow := range rows {
 			out += fmt.Sprintf("\n\n@%s: %d", scoreRow.name, scoreRow.score)

@@ -35,6 +35,8 @@ const (
 	AttachmentPathNext            = "/next"
 	AttachmentPathScore           = "/score"
 
+	StaticPath = "/static"
+
 	DialogTypeSelect    = "select"
 	DialogTypeBool      = "bool"
 	DialogTypeText      = "text"
@@ -58,4 +60,8 @@ const (
 
 	IncorrectAnswerCount = 3
 	Separator            = "-------------"
+
+	AchievementNameContentCreator = "Content creator"
+	AchievementNameWinner         = "Winner"
+	AchievementNameHardWorker     = "Hard worker"
 )
