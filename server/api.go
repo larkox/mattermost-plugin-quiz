@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -95,6 +96,61 @@ func (p *Plugin) initializeAPI() {
 			Handler: p.dialogAnswer,
 			Method:  http.MethodPost,
 		},
+		{
+			Path:    DialogPathNameCourse,
+			Handler: p.dialogNameCourse,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathCourseDescription,
+			Handler: p.dialogCourseDescription,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathCourseDelete,
+			Handler: p.dialogCourseDelete,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathAddLesson,
+			Handler: p.dialogAddLesson,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathEditLesson,
+			Handler: p.dialogEditLesson,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathNameLesson,
+			Handler: p.dialogNameLesson,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathLessonIntroduction,
+			Handler: p.dialogLessonIntroduction,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathAddResource,
+			Handler: p.dialogAddResource,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathAddQuizResource,
+			Handler: p.dialogAddQuizResource,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathRemoveResources,
+			Handler: p.dialogRemoveResources,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    DialogPathLessonDelete,
+			Handler: p.dialogLessonDelete,
+			Method:  http.MethodPost,
+		},
 	}
 
 	for _, e := range dialogRouterEndpoints {
@@ -155,6 +211,71 @@ func (p *Plugin) initializeAPI() {
 		{
 			Path:    AttachmentPathAnswer,
 			Handler: p.attachmentAnswer,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathNameCourse,
+			Handler: p.attachmentNameCourse,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathCourseDelete,
+			Handler: p.attachmentCourseDelete,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathCourseDescription,
+			Handler: p.attachmentCourseDescription,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathAddLesson,
+			Handler: p.attachmentAddLesson,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathEditLesson,
+			Handler: p.attachmentEditLesson,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathSaveCourse,
+			Handler: p.attachmentSaveCourse,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathNameLesson,
+			Handler: p.attachmentNameLesson,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathLessonBack,
+			Handler: p.attachmentLessonBack,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathLessonIntroduction,
+			Handler: p.attachmentLessonIntroduction,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathAddResource,
+			Handler: p.attachmentAddResource,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathAddQuizResource,
+			Handler: p.attachmentAddQuizResource,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathRemoveResources,
+			Handler: p.attachmentRemoveResources,
+			Method:  http.MethodPost,
+		},
+		{
+			Path:    AttachmentPathLessonDelete,
+			Handler: p.attachmentLessonDelete,
 			Method:  http.MethodPost,
 		},
 	}
@@ -664,6 +785,617 @@ func (p *Plugin) dialogAnswer(w http.ResponseWriter, r *http.Request, actingUser
 	}
 
 	p.mm.Post.SendEphemeralPost(actingUserID, responsePost)
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogNameCourse(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id := req.State
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	name, ok := req.Submission[DialogSubmissionFieldName].(string)
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldName: "Invalid name",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	c.Name = name
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateAttachmentFromCourse(c))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogCourseDescription(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id := req.State
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	description, ok := req.Submission[DialogSubmissionFieldDescription].(string)
+	description = strings.TrimSpace(description)
+	if !ok || description == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldDescription: "Invalid name",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	c.Description = description
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateAttachmentFromCourse(c))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogCourseDelete(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id := req.State
+	err := p.mm.Post.DeletePost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	err = p.store.DeleteCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	post := &model.Post{
+		UserId:    p.BotUserID,
+		ChannelId: req.ChannelId,
+		Message:   "Course creation cancelled",
+	}
+
+	p.mm.Post.SendEphemeralPost(actingUserID, post)
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogAddLesson(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id := req.State
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	name, ok := req.Submission[DialogSubmissionFieldName].(string)
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldName: "Invalid name",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	description, ok := req.Submission[DialogSubmissionFieldDescription].(string)
+	description = strings.TrimSpace(description)
+	if !ok || description == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldDescription: "Invalid name",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	c.Lessons = append(c.Lessons, &Lesson{
+		Name:         name,
+		Introduction: description,
+	})
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, len(c.Lessons)-1))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogEditLesson(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id := req.State
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	indexStr, ok := req.Submission[DialogSubmissionFieldLesson].(string)
+	indexStr = strings.TrimSpace(indexStr)
+	if !ok || indexStr == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldLesson: "Invalid lesson",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		errors := map[string]string{
+			DialogSubmissionFieldLesson: "Invalid lesson",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		errors := map[string]string{
+			DialogSubmissionFieldLesson: "Lesson not found",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, index))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogNameLesson(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id, index := getLessonIndexAndIDFromState(req.State)
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	name, ok := req.Submission[DialogSubmissionFieldName].(string)
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldName: "Invalid name",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		dialogError(w, "Cannot find this lesson. Please hit the back button.", nil)
+		return
+	}
+
+	c.Lessons[index].Name = name
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, index))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogLessonIntroduction(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id, index := getLessonIndexAndIDFromState(req.State)
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	introduction, ok := req.Submission[DialogSubmissionFieldDescription].(string)
+	introduction = strings.TrimSpace(introduction)
+	if !ok || introduction == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldDescription: "Invalid introduction",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		dialogError(w, "Cannot find this lesson. Please hit the back button.", nil)
+		return
+	}
+
+	c.Lessons[index].Introduction = introduction
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, index))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogAddResource(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id, index := getLessonIndexAndIDFromState(req.State)
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	name, ok := req.Submission[DialogSubmissionFieldName].(string)
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldName: "Invalid introduction",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	pretext, ok := req.Submission[DialogSubmissionFieldDescription].(string)
+	pretext = strings.TrimSpace(pretext)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldDescription: "Invalid pretext",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	resourceType, ok := req.Submission[DialogSubmissionFieldType].(string)
+	resourceType = strings.TrimSpace(resourceType)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldType: "Invalid resource type",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	content, ok := req.Submission[DialogSubmissionFieldContent].(string)
+	content = strings.TrimSpace(content)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldContent: "Invalid content",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		dialogError(w, "Cannot find this lesson. Please hit the back button.", nil)
+		return
+	}
+
+	lesson := c.Lessons[index]
+
+	lesson.Resources = append(lesson.Resources, &Resource{
+		Name:    name,
+		Type:    resourceType,
+		Content: content,
+		Pretext: pretext,
+	})
+
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, index))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogAddQuizResource(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id, index := getLessonIndexAndIDFromState(req.State)
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	name, ok := req.Submission[DialogSubmissionFieldName].(string)
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldName: "Invalid introduction",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	pretext, ok := req.Submission[DialogSubmissionFieldDescription].(string)
+	pretext = strings.TrimSpace(pretext)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldDescription: "Invalid pretext",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	quizID, ok := req.Submission[DialogSubmissionFieldQuiz].(string)
+	quizID = strings.TrimSpace(quizID)
+	if !ok || name == "" {
+		errors := map[string]string{
+			DialogSubmissionFieldQuiz: "Invalid quiz",
+		}
+		dialogError(w, "Missing some value", errors)
+		return
+	}
+
+	quiz, err := p.store.GetQuiz(quizID)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if quiz == nil {
+		errors := map[string]string{
+			DialogSubmissionFieldQuiz: "Quiz not found",
+		}
+		dialogError(w, "quiz not found", errors)
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		dialogError(w, "Cannot find this lesson. Please hit the back button.", nil)
+		return
+	}
+
+	lesson := c.Lessons[index]
+
+	lesson.Resources = append(lesson.Resources, &Resource{
+		Name:    name,
+		Type:    string(ResourceTypeQuiz),
+		Content: quizID,
+		Pretext: pretext,
+	})
+
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, index))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogRemoveResources(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id, index := getLessonIndexAndIDFromState(req.State)
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		dialogError(w, "Cannot find this lesson. Please hit the back button.", nil)
+		return
+	}
+
+	lesson := c.Lessons[index]
+
+	deleteIndexes := []int{}
+	for toDeleteID, value := range req.Submission {
+		v, ok := value.(bool)
+		if !ok || !v {
+			continue
+		}
+
+		rIndex, err := strconv.Atoi(toDeleteID)
+		if err != nil {
+			p.mm.Log.Debug("Index not convertible to int", "err", err)
+			continue
+		}
+
+		deleteIndexes = append(deleteIndexes, rIndex)
+	}
+	sort.Slice(deleteIndexes, func(i, j int) bool { return i > j })
+
+	for _, i := range deleteIndexes {
+		lesson.Resources = append(lesson.Resources[:i], lesson.Resources[i+1:]...)
+	}
+
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateLessonAttachmentFromCourse(c, index))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	dialogOK(w)
+}
+
+func (p *Plugin) dialogLessonDelete(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.SubmitDialogRequestFromJson(r.Body)
+	id, index := getLessonIndexAndIDFromState(req.State)
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+	if c == nil {
+		dialogError(w, "course not found", nil)
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		dialogError(w, "Cannot find this lesson. Please hit the back button.", nil)
+		return
+	}
+
+	c.Lessons = append(c.Lessons[:index], c.Lessons[index+1:]...)
+
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateAttachmentFromCourse(c))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		dialogError(w, err.Error(), nil)
+		return
+	}
+
 	dialogOK(w)
 }
 
@@ -1271,6 +2003,556 @@ func (p *Plugin) handleNextQuestion(g *Game, channelID, actingUserID string) err
 	return p.store.StoreGame(g)
 }
 
+func (p *Plugin) attachmentNameCourse(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	defaultName := ""
+	if c != nil {
+		defaultName = c.Name
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathNameCourse,
+		Dialog: model.Dialog{
+			Title:            "Name course",
+			IntroductionText: "Write the name of your course",
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Course name",
+					Name:        DialogSubmissionFieldName,
+					Type:        DialogTypeText,
+					Default:     defaultName,
+				},
+			},
+			State: id,
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentCourseDescription(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	defaultDescription := ""
+	if c != nil {
+		defaultDescription = c.Description
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathCourseDescription,
+		Dialog: model.Dialog{
+			Title:            "Add course description",
+			IntroductionText: "Write the description of your course",
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Course description",
+					Name:        DialogSubmissionFieldDescription,
+					Type:        DialogTypeText,
+					Default:     defaultDescription,
+				},
+			},
+			State: id,
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentCourseDelete(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+	err := p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathCourseDelete,
+		Dialog: model.Dialog{
+			Title:            "Cancel creation",
+			IntroductionText: "Are you sure you want to cancel the creation of this course? All changes will be lost.",
+			SubmitLabel:      "Delete",
+			State:            id,
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentSaveCourse(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	if c == nil {
+		attachmentError(w, "course not found")
+		return
+	}
+
+	if len(c.Lessons) == 0 {
+		attachmentError(w, "cannot save a course with no lessons")
+		return
+	}
+
+	err = p.store.AddAvailableCourse(c)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	resp := model.PostActionIntegrationResponse{
+		Update: &model.Post{
+			Message: fmt.Sprintf("Course `%s` saved and ready to use.", c.Name),
+			Props:   model.StringInterface{},
+		},
+	}
+	_, _ = w.Write(resp.ToJson())
+}
+
+func (p *Plugin) attachmentAddLesson(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	if c == nil {
+		attachmentError(w, "course not found")
+		return
+	}
+
+	dr := model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathAddLesson,
+		Dialog: model.Dialog{
+			Title:            "Add a lesson",
+			IntroductionText: "Write the lesson basic information to add",
+			SubmitLabel:      "Add",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Name",
+					Name:        DialogSubmissionFieldName,
+					Type:        DialogTypeText,
+				},
+				{
+					DisplayName: "Description",
+					Name:        DialogSubmissionFieldDescription,
+					Type:        DialogTypeText,
+				},
+			},
+			State: id,
+		},
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(dr)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentEditLesson(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	if c == nil {
+		attachmentError(w, "quiz not found")
+		return
+	}
+
+	element := model.DialogElement{
+		DisplayName: "Lesson",
+		Name:        DialogSubmissionFieldLesson,
+		Type:        "select",
+		Options:     []*model.PostActionOptions{},
+	}
+	for i, lesson := range c.Lessons {
+		option := &model.PostActionOptions{
+			Text:  lesson.Name,
+			Value: strconv.Itoa(i),
+		}
+		element.Options = append(element.Options, option)
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathEditLesson,
+		Dialog: model.Dialog{
+			Title:            "Edit lessons",
+			IntroductionText: "Select the lesson to edit.",
+			SubmitLabel:      "Edit",
+			State:            id,
+			Elements:         []model.DialogElement{element},
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentNameLesson(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+	index := getLessonIndexFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		attachmentError(w, "Cannot find this lesson. Please hit the back button.")
+		return
+	}
+
+	lesson := c.Lessons[index]
+
+	defaultName := ""
+	if c != nil {
+		defaultName = lesson.Name
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathNameLesson,
+		Dialog: model.Dialog{
+			Title:            "Name lesson",
+			IntroductionText: "Write the name of your lesson",
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Lesson name",
+					Name:        DialogSubmissionFieldName,
+					Type:        DialogTypeText,
+					Default:     defaultName,
+				},
+			},
+			State: getLessonDialogState(id, index),
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentLessonIntroduction(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+	index := getLessonIndexFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		attachmentError(w, "Cannot find this lesson. Please hit the back button.")
+		return
+	}
+
+	lesson := c.Lessons[index]
+
+	defaultIntroduction := ""
+	if c != nil {
+		defaultIntroduction = lesson.Introduction
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathLessonIntroduction,
+		Dialog: model.Dialog{
+			Title:            "Name lesson",
+			IntroductionText: "Write the introduction of your lesson",
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Lesson introduction",
+					Name:        DialogSubmissionFieldDescription,
+					Type:        DialogTypeText,
+					Default:     defaultIntroduction,
+				},
+			},
+			State: getLessonDialogState(id, index),
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentAddResource(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+	index := getLessonIndexFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		attachmentError(w, "Cannot find this lesson. Please hit the back button.")
+		return
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathAddResource,
+		Dialog: model.Dialog{
+			Title:            "Add resource",
+			IntroductionText: "Fill the resource information",
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Resource name",
+					Name:        DialogSubmissionFieldName,
+					Type:        DialogTypeText,
+				},
+				{
+					DisplayName: "Resource pretext",
+					Name:        DialogSubmissionFieldDescription,
+					Type:        DialogTypeText,
+				},
+				{
+					DisplayName: "Resource type",
+					Name:        DialogSubmissionFieldType,
+					Type:        DialogTypeSelect,
+					Options: []*model.PostActionOptions{
+						{
+							Text:  "Video",
+							Value: string(ResourceTypeVideo),
+						},
+						{
+							Text:  "Text",
+							Value: string(ResourceTypeText),
+						},
+						{
+							Text:  "Link",
+							Value: string(ResourceTypeLink),
+						},
+					},
+				},
+				{
+					DisplayName: "Resource content",
+					Name:        DialogSubmissionFieldContent,
+					Type:        DialogTypeText,
+				},
+			},
+			State: getLessonDialogState(id, index),
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentAddQuizResource(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+	index := getLessonIndexFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		attachmentError(w, "Cannot find this lesson. Please hit the back button.")
+		return
+	}
+
+	quizOptions := []*model.PostActionOptions{}
+	qq := p.store.GetAvailableQuizes()
+
+	if len(qq) == 0 {
+		attachmentError(w, "No quizzes available to add.")
+		return
+	}
+
+	for _, q := range qq {
+		quizOptions = append(quizOptions, &model.PostActionOptions{Text: q.Name, Value: q.ID})
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathAddQuizResource,
+		Dialog: model.Dialog{
+			Title:            "Add resource",
+			IntroductionText: "Fill the resource information",
+			SubmitLabel:      "Submit",
+			Elements: []model.DialogElement{
+				{
+					DisplayName: "Resource name",
+					Name:        DialogSubmissionFieldName,
+					Type:        DialogTypeText,
+				},
+				{
+					DisplayName: "Resource pretext",
+					Name:        DialogSubmissionFieldDescription,
+					Type:        DialogTypeText,
+				},
+				{
+					DisplayName: "Quiz",
+					Name:        DialogSubmissionFieldQuiz,
+					Type:        DialogTypeSelect,
+					Options:     quizOptions,
+				},
+			},
+			State: getLessonDialogState(id, index),
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentRemoveResources(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getQuizIDFromPostActionRequest(req)
+	index := getLessonIndexFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	if c == nil {
+		attachmentError(w, "course not found")
+		return
+	}
+
+	if index < 0 || index >= len(c.Lessons) {
+		attachmentError(w, "Cannot find this lesson. Please hit the back button.")
+		return
+	}
+
+	lesson := c.Lessons[index]
+
+	elements := []model.DialogElement{}
+	for i, resource := range lesson.Resources {
+		element := model.DialogElement{
+			DisplayName: resource.Name,
+			Name:        strconv.Itoa(i),
+			Type:        DialogTypeBool,
+			Optional:    true,
+		}
+		elements = append(elements, element)
+	}
+
+	err = p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathRemoveResources,
+		Dialog: model.Dialog{
+			Title:            "Remove resources",
+			IntroductionText: "Select the resources to delete.",
+			SubmitLabel:      "Remove selected",
+			State:            getLessonDialogState(id, index),
+			Elements:         elements,
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentLessonBack(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+
+	c, err := p.store.GetCourse(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	post, err := p.mm.Post.GetPost(id)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+
+	model.ParseSlackAttachment(post, p.CreateAttachmentFromCourse(c))
+	err = p.mm.Post.UpdatePost(post)
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
+func (p *Plugin) attachmentLessonDelete(w http.ResponseWriter, r *http.Request, actingUserID string) {
+	req := model.PostActionIntegrationRequestFromJson(r.Body)
+	id := getCourseIDFromPostActionRequest(req)
+	index := getLessonIndexFromPostActionRequest(req)
+	err := p.mm.Frontend.OpenInteractiveDialog(model.OpenDialogRequest{
+		TriggerId: req.TriggerId,
+		URL:       p.getDialogURL() + DialogPathLessonDelete,
+		Dialog: model.Dialog{
+			Title:            "Delete lesson",
+			IntroductionText: "Are you sure you want to delete this lesson? All changes will be lost.",
+			SubmitLabel:      "Delete",
+			State:            getLessonDialogState(id, index),
+		},
+	})
+	if err != nil {
+		attachmentError(w, err.Error())
+		return
+	}
+	attachmentOK(w, "")
+}
+
 func getQuizIDFromPostActionRequest(req *model.PostActionIntegrationRequest) string {
 	id, ok := req.Context[AttachmentContextFieldID].(string)
 	if !ok || id == "" {
@@ -1279,12 +2561,48 @@ func getQuizIDFromPostActionRequest(req *model.PostActionIntegrationRequest) str
 	return id
 }
 
+func getCourseIDFromPostActionRequest(req *model.PostActionIntegrationRequest) string {
+	id, ok := req.Context[AttachmentContextFieldID].(string)
+	if !ok || id == "" {
+		id = req.PostId
+	}
+	return id
+}
+
+func getLessonIndexFromPostActionRequest(req *model.PostActionIntegrationRequest) int {
+	id, ok := req.Context[AttachmentContextFieldLessonIndex].(float64)
+	if !ok {
+		id = -1
+	}
+	return int(id)
+}
+
 func getGameIDFromPostActionRequest(req *model.PostActionIntegrationRequest) string {
 	id, ok := req.Context[AttachmentContextFieldGameID].(string)
 	if !ok || id == "" {
 		id = req.PostId
 	}
 	return id
+}
+
+func getLessonDialogState(cID string, index int) string {
+	return fmt.Sprintf("%s,%d", cID, index)
+}
+
+func getLessonIndexAndIDFromState(state string) (string, int) {
+	parts := strings.Split(state, ",")
+	if len(parts) != 2 {
+		return "", -1
+	}
+
+	cID := parts[0]
+	indexStr := parts[1]
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		return "", -1
+	}
+
+	return cID, index
 }
 
 // func (p *Plugin) getUserBadges(w http.ResponseWriter, r *http.Request, actingUserID string) {

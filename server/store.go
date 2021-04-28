@@ -13,12 +13,19 @@ type Store interface {
 	GetGame(id string) (*Game, error)
 	StoreGame(g *Game) error
 	DeleteGame(id string) error
+
+	StoreCourse(c *Course) error
+	GetCourse(id string) (*Course, error)
+	AddAvailableCourse(c *Course) error
+	DeleteCourse(id string) error
 }
 
 const (
-	KVQuizPrefix = "quiz_"
-	KVQuizList   = "quizList"
-	KVGamePrefix = "game_"
+	KVQuizPrefix   = "quiz_"
+	KVQuizList     = "quizList"
+	KVGamePrefix   = "game_"
+	KVCoursePrefix = "course_"
+	KVCourseList   = "courseList"
 )
 
 type store struct {
@@ -169,10 +176,96 @@ func (s *store) GetQuiz(id string) (*Quiz, error) {
 	return q, nil
 }
 
+func (s *store) StoreCourse(c *Course) error {
+	_, err := s.mm.KV.Set(getCourseKey(c.ID), c)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *store) GetCourse(id string) (*Course, error) {
+	c := &Course{}
+	err := s.mm.KV.Get(getCourseKey(id), c)
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
+func (s *store) AddAvailableCourse(c *Course) error {
+	courseIDList := []string{}
+	err := s.mm.KV.Get(KVCourseList, &courseIDList)
+	if err != nil {
+		return err
+	}
+
+	for _, id := range courseIDList {
+		if id == c.ID {
+			return nil
+		}
+	}
+
+	courseIDList = append(courseIDList, c.ID)
+
+	_, err = s.mm.KV.Set(KVCourseList, courseIDList)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *store) DeleteCourse(id string) error {
+	err := s.removeAvailableCourse(id)
+	if err != nil {
+		return err
+	}
+
+	err = s.mm.KV.Delete(getCourseKey(id))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *store) removeAvailableCourse(id string) error {
+	courseIDList := []string{}
+	err := s.mm.KV.Get(KVCourseList, &courseIDList)
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	for i, qid := range courseIDList {
+		if qid == id {
+			courseIDList = append(courseIDList[0:i], courseIDList[i+1:]...)
+			changed = true
+			break
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	_, err = s.mm.KV.Set(KVCourseList, courseIDList)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func getQuizKey(id string) string {
 	return KVQuizPrefix + id
 }
 
 func getGameKey(id string) string {
 	return KVGamePrefix + id
+}
+
+func getCourseKey(id string) string {
+	return KVCoursePrefix + id
 }

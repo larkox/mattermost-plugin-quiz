@@ -277,3 +277,234 @@ func getScores(g *Game) string {
 	out += strconv.Itoa(score)
 	return out
 }
+
+func (p *Plugin) CreateAttachmentFromCourse(c *Course) []*model.SlackAttachment {
+	attachment := model.SlackAttachment{
+		Title:   "Course creation",
+		Actions: []*model.PostAction{},
+	}
+
+	renameAction := model.PostAction{
+		Type: "button",
+		Name: "Name course",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathNameCourse,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID: c.ID,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &renameAction)
+
+	if c.Name == "" {
+		attachment.Text = "First name your course"
+		return p.finishCreateAttachmentForCourse(&attachment, c)
+	}
+
+	attachment.Text = "Course: " + c.Name
+	renameAction.Name = "Rename Course"
+
+	changeTypeAction := model.PostAction{
+		Type: "button",
+		Name: "Add course description",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathCourseDescription,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID: c.ID,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &changeTypeAction)
+
+	if c.Description == "" {
+		attachment.Text += "\nAdd a description to the course"
+		return p.finishCreateAttachmentForCourse(&attachment, c)
+	}
+
+	attachment.Text += "\nDescription: " + string(c.Description)
+	changeTypeAction.Name = "Change description"
+
+	addQuestionAction := model.PostAction{
+		Type: "button",
+		Name: "Add lesson",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathAddLesson,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID: c.ID,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &addQuestionAction)
+
+	allLessons := len(c.Lessons)
+
+	if allLessons > 0 {
+		reviewQuestionsAction := model.PostAction{
+			Type: "button",
+			Name: "Edit lesson",
+			Integration: &model.PostActionIntegration{
+				URL: p.getAttachmentURL() + AttachmentPathEditLesson,
+				Context: map[string]interface{}{
+					AttachmentContextFieldID: c.ID,
+				},
+			},
+		}
+		attachment.Actions = append(attachment.Actions, &reviewQuestionsAction)
+
+		saveAction := model.PostAction{
+			Type:  "button",
+			Name:  "Save course",
+			Style: "good",
+			Integration: &model.PostActionIntegration{
+				URL: p.getAttachmentURL() + AttachmentPathSaveCourse,
+				Context: map[string]interface{}{
+					AttachmentContextFieldID: c.ID,
+				},
+			},
+		}
+		attachment.Actions = append(attachment.Actions, &saveAction)
+	}
+
+	attachment.Text += fmt.Sprintf("\nNumber of lessons: %d", allLessons)
+
+	return p.finishCreateAttachmentForCourse(&attachment, c)
+}
+
+func (p *Plugin) CreateLessonAttachmentFromCourse(c *Course, index int) []*model.SlackAttachment {
+	attachment := model.SlackAttachment{
+		Title:   "Lesson creation",
+		Actions: []*model.PostAction{},
+	}
+	attachment.Text = "Course: " + c.Name
+
+	if index >= len(c.Lessons) {
+		attachment.Text = "\nLesson not found."
+		return p.finishCreateLessonAttachmentForCourse(&attachment, c, index)
+	}
+
+	lesson := c.Lessons[index]
+
+	attachment.Text = "\nLesson name: " + lesson.Name
+	attachment.Text = "\nLesson introduction: " + lesson.Introduction
+
+	renameAction := model.PostAction{
+		Type: "button",
+		Name: "Rename lesson",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathNameLesson,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID:          c.ID,
+				AttachmentContextFieldLessonIndex: index,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &renameAction)
+
+	changeIntroduction := model.PostAction{
+		Type: "button",
+		Name: "Change lesson introduction",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathLessonIntroduction,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID:          c.ID,
+				AttachmentContextFieldLessonIndex: index,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &changeIntroduction)
+
+	addResourceAction := model.PostAction{
+		Type: "button",
+		Name: "Add resource",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathAddResource,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID:          c.ID,
+				AttachmentContextFieldLessonIndex: index,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &addResourceAction)
+
+	addQuizResourceAction := model.PostAction{
+		Type: "button",
+		Name: "Add quiz resource",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathAddQuizResource,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID:          c.ID,
+				AttachmentContextFieldLessonIndex: index,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &addQuizResourceAction)
+
+	allResources := len(lesson.Resources)
+
+	if allResources > 0 {
+		reviewQuestionsAction := model.PostAction{
+			Type: "button",
+			Name: "Remove resources",
+			Integration: &model.PostActionIntegration{
+				URL: p.getAttachmentURL() + AttachmentPathRemoveResources,
+				Context: map[string]interface{}{
+					AttachmentContextFieldID:          c.ID,
+					AttachmentContextFieldLessonIndex: index,
+				},
+			},
+		}
+		attachment.Actions = append(attachment.Actions, &reviewQuestionsAction)
+	}
+
+	attachment.Text += fmt.Sprintf("\nNumber of resources: %d", allResources)
+
+	return p.finishCreateLessonAttachmentForCourse(&attachment, c, index)
+}
+
+func (p *Plugin) finishCreateAttachmentForCourse(attachment *model.SlackAttachment, c *Course) []*model.SlackAttachment {
+	cancelAction := model.PostAction{
+		Type:  "button",
+		Name:  "Cancel",
+		Style: "danger",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathCourseDelete,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID: c.ID,
+			},
+		},
+	}
+
+	attachment.Actions = append(attachment.Actions, &cancelAction)
+	return []*model.SlackAttachment{attachment}
+}
+
+func (p *Plugin) finishCreateLessonAttachmentForCourse(attachment *model.SlackAttachment, c *Course, index int) []*model.SlackAttachment {
+	cancelAction := model.PostAction{
+		Type: "button",
+		Name: "Back",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathLessonBack,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID: c.ID,
+			},
+		},
+	}
+
+	attachment.Actions = append(attachment.Actions, &cancelAction)
+
+	deleteAction := model.PostAction{
+		Type:  "button",
+		Name:  "Delete",
+		Style: "danger",
+		Integration: &model.PostActionIntegration{
+			URL: p.getAttachmentURL() + AttachmentPathLessonDelete,
+			Context: map[string]interface{}{
+				AttachmentContextFieldID:          c.ID,
+				AttachmentContextFieldLessonIndex: index,
+			},
+		},
+	}
+	attachment.Actions = append(attachment.Actions, &deleteAction)
+
+	return []*model.SlackAttachment{attachment}
+}

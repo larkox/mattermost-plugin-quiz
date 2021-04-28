@@ -21,6 +21,15 @@ const (
 	ScoringTypeFirst ScoringType = "first"
 )
 
+type ResourceType string
+
+const (
+	ResourceTypeText  ResourceType = "text"
+	ResourceTypeLink  ResourceType = "link"
+	ResourceTypeVideo ResourceType = "video"
+	ResourceTypeQuiz  ResourceType = "quiz"
+)
+
 type Quiz struct {
 	ID        string
 	Name      string
@@ -64,4 +73,24 @@ func (q Quiz) ValidQuestions() int {
 	}
 
 	return n
+}
+
+type Course struct {
+	ID          string
+	Name        string
+	Description string
+	Lessons     []*Lesson
+}
+
+type Lesson struct {
+	Name         string
+	Introduction string
+	Resources    []*Resource
+}
+
+type Resource struct {
+	Name    string
+	Type    string
+	Content string
+	Pretext string
 }

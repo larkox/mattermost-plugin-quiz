@@ -84,6 +84,60 @@ func (p *Plugin) runClean(args []string, extra *model.CommandArgs) (bool, *model
 }
 
 func (p *Plugin) runCreate(args []string, extra *model.CommandArgs) (bool, *model.CommandResponse, error) {
+	lengthOfArgs := len(args)
+	restOfArgs := []string{}
+	var handler func([]string, *model.CommandArgs) (bool, *model.CommandResponse, error)
+	if lengthOfArgs == 0 {
+		return false, &model.CommandResponse{Text: "Specify what you want to create."}, nil
+	}
+	command := args[0]
+	if lengthOfArgs > 1 {
+		restOfArgs = args[1:]
+	}
+	switch command {
+	case "quiz":
+		handler = p.runCreateQuiz
+	case "course":
+		handler = p.runCreateCourse
+	case "test-clean":
+		handler = p.runTestClean
+	default:
+		return false, &model.CommandResponse{Text: "You can create either badge or type"}, nil
+	}
+
+	return handler(restOfArgs, extra)
+}
+
+func (p *Plugin) runTestClean(args []string, extra *model.CommandArgs) (bool, *model.CommandResponse, error) {
+	p.mm.KV.DeleteAll()
+	return emptyCommandResponse()
+}
+
+func (p *Plugin) runCreateCourse(args []string, extra *model.CommandArgs) (bool, *model.CommandResponse, error) {
+	post := &model.Post{
+		Message: "Creating a course",
+	}
+	c := &Course{}
+	model.ParseSlackAttachment(post, p.CreateAttachmentFromCourse(c))
+
+	err := p.mm.Post.DM(p.BotUserID, extra.UserId, post)
+	if err != nil {
+		p.postCommandResponse(extra, "Error: "+err.Error())
+		return emptyCommandResponse()
+	}
+
+	c.ID = post.Id
+	err = p.store.StoreCourse(c)
+	if err != nil {
+		p.postCommandResponse(extra, "Error: "+err.Error())
+		return emptyCommandResponse()
+	}
+
+	p.postCommandResponse(extra, "The bot will contact you soon and guide you through the creation process.")
+	return emptyCommandResponse()
+}
+
+func (p *Plugin) runCreateQuiz(args []string, extra *model.CommandArgs) (bool, *model.CommandResponse, error) {
 	post := &model.Post{
 		Message: "Creating quiz",
 	}
